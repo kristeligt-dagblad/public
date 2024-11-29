@@ -1,7 +1,5 @@
 """
-title: LlamaIndex + Gemini Test Pipeline
-author: analyse@k.dk
-date: 2024-11-15
+title: LlamaIndex + Gemini Test Pipeline (Fixed)
 version: 1.0
 description: Test pipeline for verifying LlamaIndex and Gemini functionality
 requirements: llama-index, llama-index-llms-gemini
@@ -9,57 +7,89 @@ requirements: llama-index, llama-index-llms-gemini
 
 from typing import Generator, Iterator, List, Union
 from pydantic import BaseModel
-from llama_index.llms.gemini import Gemini
-from llama_index.core import Document, VectorStoreIndex, Settings
 
 class Pipeline:
-    """Test Pipeline for Llama Index functionality"""
+    """Test Pipeline for LlamaIndex and Gemini"""
     
     class Valves(BaseModel):
-        """Test options for WebUI"""
-        test_text: str = "The capital of France is Paris. The capital of Italy is Rome."
+        """Test configuration"""
+        test_query: str = "What is AI?"
 
     def __init__(self):
         self.documents = None
         self.index = None
-        self.valves = self.Valves()
+        # Initialize immediately instead of waiting for async startup
+        self._initialize_index()
 
-    async def on_startup(self):
+    def _initialize_index(self):
+        """Synchronous initialization of the index"""
+        from llama_index.core import Settings, VectorStoreIndex, Document
+        from llama_index.llms.gemini import Gemini
+
         try:
-            # Create a test document
-            test_doc = Document(text=self.valves.test_text)
-            
-            # Initialize settings with default embedding model
+            # Set up Gemini
             Settings.llm = Gemini(model="gemini-1.5-pro-001")
             
-            # Create index from test document
-            self.index = VectorStoreIndex.from_documents([test_doc])
-            print("Llama Index initialization successful!")
-            return True
+            # Create test document
+            test_text = (
+                "Artificial Intelligence (AI) is the simulation of human intelligence by machines. "
+                "Machine learning is a subset of AI that enables systems to learn from data. "
+                "Deep learning is a type of machine learning based on neural networks."
+            )
+            self.documents = [Document(text=test_text)]
+            
+            # Create index
+            self.index = VectorStoreIndex.from_documents(self.documents)
+            
+            print("✓ LlamaIndex and Gemini setup successful")
+            print("✓ Test document indexed")
             
         except Exception as e:
-            print(f"Llama Index initialization failed: {str(e)}")
-            return False
+            print(f"❌ Setup failed: {str(e)}")
+            raise
+
+    async def on_startup(self):
+        # Startup is now just a check since initialization happens in __init__
+        if self.index is None:
+            self._initialize_index()
+        print("✓ Pipeline ready")
 
     async def on_shutdown(self):
         print("Pipeline shutdown")
 
     async def on_valves_updated(self) -> None:
-        print(f"Updating index with new test text: {self.valves.test_text}")
-        await self.on_startup()
+        print(f"Testing with query: {self.valves.test_query}")
+        if self.index is None:
+            self._initialize_index()
 
     def pipe(
         self, user_message: str, model_id: str, messages: List[dict], body: dict
     ) -> Union[str, Generator, Iterator]:
         try:
-            # Test querying the index
             if self.index is None:
-                return "Index not initialized. Please check startup logs."
+                raise ValueError("Index not initialized. Attempting to reinitialize...")
                 
+            # Create query engine
             query_engine = self.index.as_query_engine(streaming=True)
+            
+            # Generate response
             response = query_engine.query(user_message)
             
+            print(f"✓ Query processed: {user_message}")
             return response.response_gen
             
         except Exception as e:
-            return f"Query failed: {str(e)}"
+            error_msg = f"❌ Query failed: {str(e)}"
+            print(error_msg)
+            
+            # Try to recover by reinitializing
+            try:
+                self._initialize_index()
+                query_engine = self.index.as_query_engine(streaming=True)
+                response = query_engine.query(user_message)
+                print("✓ Recovery successful")
+                return response.response_gen
+            except Exception as recovery_e:
+                def error_generator():
+                    yield f"❌ Recovery failed: {str(recovery_e)}"
+                return error_generator()
