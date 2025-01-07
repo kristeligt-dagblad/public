@@ -2,7 +2,7 @@
 title: LlamaIndex + Gemini Test Pipeline
 author: analyse@k.dk
 date: 2024-11-15
-version: 1.0
+version: 1.1
 description: Test pipeline for verifying LlamaIndex and Gemini functionality
 requirements: llama-index, llama-index-llms-gemini
 """
